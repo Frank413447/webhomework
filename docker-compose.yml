@@ -1,0 +1,58 @@
+services:
+  # ========== MySQL 数据库 ==========
+  mysql:
+    image: mysql:8.0
+    container_name: webhomework-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 1234
+      MYSQL_DATABASE: company
+    ports:
+      - "3306:3306"          # 映射到宿主机，方便本地工具连接
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:             # 健康检查：确保 MySQL 就绪后才启动 app
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p1234"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ========== Redis 缓存 ==========
+  redis:
+    image: redis:7-alpine
+    container_name: webhomework-redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # ========== Spring Boot 应用 ==========
+  app:
+    build: .                 # 从当前目录的 Dockerfile 构建
+    container_name: webhomework-app
+    ports:
+      - "8080:8080"
+    environment:
+      # 覆盖数据库连接 → 指向 Docker 内的 MySQL 服务
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/company?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 1234
+      # 覆盖 Redis 连接 → 指向 Docker 内的 Redis 服务
+      SPRING_DATA_REDIS_HOST: redis
+      # AI API Key（从宿主机环境变量传入，或在 .env 文件中配置）
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      # JVM 内存限制
+      JAVA_OPTS: "-Xmx256m"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
